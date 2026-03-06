@@ -3,15 +3,19 @@ import re
 import subprocess
 import time
 import sys
+import shutil
+from collections import deque
 from datetime import datetime
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 
 TARGET = "8.8.8.8"
 NORMAL_INTERVAL = 15   # seconds between pings when healthy
 RETRY_INTERVAL = 2     # seconds between pings when recovering
 MAX_RETRIES = 2        # immediate retries before entering recovery mode
-MAX_LOG = 10           # recent events shown on screen
+MAX_LOG = 8            # recent events shown on screen
+GRAPH_HEIGHT = 8       # rows tall for the latency graph
+GRAPH_MAX = 300        # rolling sample window
 
 GREEN  = "\033[32m"
 YELLOW = "\033[33m"
@@ -41,32 +45,101 @@ def ping(host):
     return True, latency
 
 
+def render_graph(history, width, height):
+    """
+    Renders a scrolling line graph from a deque of (float|None) latency values.
+    Returns (row_strings, y_label_map) where y_label_map is {row_index: label_str}.
+    """
+    data = list(history)[-width:]
+    data = [None] * (width - len(data)) + data   # left-pad with None
+
+    valid = [v for v in data if v is not None]
+    if not valid:
+        return [" " * width] * height, {}
+
+    lo, hi = min(valid), max(valid)
+    if hi == lo:
+        hi = lo + 1
+
+    def to_row(v):
+        # row 0 = top (high latency), row height-1 = bottom (low latency)
+        normalized = (v - lo) / (hi - lo)
+        return height - 1 - int(round(normalized * (height - 1)))
+
+    col_rows = [to_row(v) if v is not None else None for v in data]
+
+    grid = [[" "] * width for _ in range(height)]
+
+    for i, row in enumerate(col_rows):
+        if row is None:
+            grid[height // 2][i] = f"{RED}\u00d7{RESET}"
+            continue
+
+        grid[row][i] = f"{GREEN}\u25cf{RESET}"
+
+        # Vertical connector to previous point
+        if i > 0 and col_rows[i - 1] is not None:
+            prev = col_rows[i - 1]
+            if prev != row:
+                for r in range(min(prev, row) + 1, max(prev, row)):
+                    grid[r][i] = f"{GREEN}\u2502{RESET}"
+
+    rows = ["".join(cell for cell in row) for row in grid]
+    y_labels = {
+        0:            f"{hi:.0f}ms",
+        height // 2:  f"{(hi + lo) / 2:.0f}ms",
+        height - 1:   f"{lo:.0f}ms",
+    }
+    return rows, y_labels
+
+
 def draw(state):
-    samples = state["samples"]
-    avg = sum(samples) / len(samples) if samples else None
-    avg_str = f"{avg:.1f}ms" if avg is not None else "n/a"
-    lat_str = f"{state['latency']:.1f}ms" if state["latency"] is not None else "—"
+    cols = shutil.get_terminal_size((80, 24)).columns
+    sep_w = min(cols - 1, 72)
+    sep = "\u2500" * sep_w
+
+    # Y-axis prefix is 8 chars: "  99ms \u2524" or "       \u2502"
+    y_label_w = 8
+    graph_w = max(10, sep_w - y_label_w)
+
+    lat_str = f"{state['latency']:.1f}ms" if state["latency"] is not None else "\u2014"
     down_str = (
         f"  (down {time.time() - state['outage_start']:.0f}s)"
         if state["outage_start"] else ""
     )
-    next_str = f"in {state['next_in']}s" if state["next_in"] > 0 else "pinging..."
+    next_str = f"in {state['next_in']}s" if state["next_in"] > 0 else "pinging\u2026"
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    graph_rows, y_labels = render_graph(state["graph"], graph_w, GRAPH_HEIGHT)
+
     lines = [
-        f"{BOLD}{'─' * 58}{RESET}",
-        f"{BOLD}  PING MONITOR  →  {TARGET}{RESET}    {DIM}v{VERSION}  {now}{RESET}",
-        f"{'─' * 58}",
-        f"  Status   : {state['color']}{BOLD}{state['label']:<12}{RESET}{state['detail']}{down_str}",
-        f"  Latency  : {lat_str}   {DIM}avg {avg_str} over {len(samples)} samples{RESET}",
-        f"  Next ping: {DIM}{next_str}{RESET}",
-        f"{'─' * 58}",
-        f"  {DIM}Recent events:{RESET}",
+        f"{BOLD}{sep}{RESET}",
+        f"{BOLD}  PING MONITOR  \u2192  {TARGET}{RESET}    {DIM}v{VERSION}  {now}{RESET}",
+        f"{sep}",
+        (
+            f"  Status   : {state['color']}{BOLD}{state['label']:<12}{RESET}"
+            f"{state['detail']}{down_str}"
+            f"   {DIM}lat {lat_str}   next {next_str}{RESET}"
+        ),
+        f"{sep}",
     ]
+
+    for r, row_str in enumerate(graph_rows):
+        label = y_labels.get(r, "")
+        if label:
+            prefix = f"{label:>6} \u2524"   # e.g. " 120ms \u2524" — 8 chars
+        else:
+            prefix = "       \u2502"          # 8 chars
+        lines.append(f"{DIM}{prefix}{RESET}{row_str}")
+
+    # X-axis bottom: 7 spaces align the corner under the \u2502 above
+    x_axis = " " * 7 + "\u2514" + "\u2500" * max(0, graph_w - 5) + " time \u2192"
+    lines.append(f"{DIM}{x_axis}{RESET}")
+
+    lines.append(f"{sep}")
+    lines.append(f"  {DIM}Recent events:{RESET}")
     for entry in state["log"][-MAX_LOG:]:
         lines.append(f"  {entry}")
-    while len(lines) < MAX_LOG + 9:
-        lines.append("")
 
     sys.stdout.write(CLEAR + "\n".join(lines) + "\n")
     sys.stdout.flush()
@@ -91,6 +164,7 @@ def main():
         "detail": "",
         "latency": None,
         "samples": [],
+        "graph": deque(maxlen=GRAPH_MAX),
         "outage_start": None,
         "next_in": 0,
         "log": [],
@@ -102,6 +176,7 @@ def main():
             success, latency = ping(TARGET)
 
             if success:
+                state["graph"].append(latency)
                 if latency is not None:
                     state["samples"].append(latency)
                 state["latency"] = latency
@@ -111,12 +186,15 @@ def main():
                     state["color"] = GREEN
                     state["label"] = "RECOVERED"
                     state["detail"] = f"  (outage lasted {duration:.0f}s)"
-                    add_log(state["log"], GREEN, "RECOVERED", f"  outage {duration:.0f}s  lat={latency:.1f}ms" if latency is not None else f"  outage {duration:.0f}s")
+                    add_log(state["log"], GREEN, "RECOVERED",
+                            f"  outage {duration:.0f}s  lat={latency:.1f}ms"
+                            if latency is not None else f"  outage {duration:.0f}s")
                 else:
                     state["color"] = GREEN
                     state["label"] = "OK"
                     state["detail"] = ""
-                    add_log(state["log"], GREEN, "OK", f"  {latency:.1f}ms" if latency is not None else "")
+                    add_log(state["log"], GREEN, "OK",
+                            f"  {latency:.1f}ms" if latency is not None else "")
                 countdown(NORMAL_INTERVAL, state)
 
             else:
@@ -133,6 +211,7 @@ def main():
                         break
 
                 if retry_success:
+                    state["graph"].append(latency)
                     if latency is not None:
                         state["samples"].append(latency)
                     state["latency"] = latency
@@ -142,14 +221,18 @@ def main():
                         state["color"] = GREEN
                         state["label"] = "RECOVERED"
                         state["detail"] = f"  (outage lasted {duration:.0f}s)"
-                        add_log(state["log"], GREEN, "RECOVERED", f"  outage {duration:.0f}s  lat={latency:.1f}ms" if latency is not None else f"  outage {duration:.0f}s")
+                        add_log(state["log"], GREEN, "RECOVERED",
+                                f"  outage {duration:.0f}s  lat={latency:.1f}ms"
+                                if latency is not None else f"  outage {duration:.0f}s")
                     else:
                         state["color"] = GREEN
                         state["label"] = "OK"
                         state["detail"] = "  (recovered on retry)"
-                        add_log(state["log"], GREEN, "OK (retry)", f"  {latency:.1f}ms" if latency is not None else "")
+                        add_log(state["log"], GREEN, "OK (retry)",
+                                f"  {latency:.1f}ms" if latency is not None else "")
                     countdown(NORMAL_INTERVAL, state)
                 else:
+                    state["graph"].append(None)   # record outage point
                     if state["outage_start"] is None:
                         state["outage_start"] = time.time()
                         add_log(state["log"], RED, "OUTAGE", "  entering recovery mode")
@@ -162,7 +245,9 @@ def main():
         samples = state["samples"]
         avg = sum(samples) / len(samples) if samples else None
         avg_str = f"{avg:.1f}ms" if avg else "n/a"
-        sys.stdout.write(f"\n  Monitor stopped.  samples={len(samples)}  overall avg={avg_str}\n\n")
+        sys.stdout.write(
+            f"\n  Monitor stopped.  samples={len(samples)}  overall avg={avg_str}\n\n"
+        )
         sys.stdout.flush()
         sys.exit(0)
 
