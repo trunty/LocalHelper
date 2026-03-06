@@ -108,12 +108,12 @@ def main():
                     state["color"] = GREEN
                     state["label"] = "RECOVERED"
                     state["detail"] = f"  (outage lasted {duration:.0f}s)"
-                    add_log(state["log"], GREEN, "RECOVERED", f"  outage {duration:.0f}s  lat={latency:.1f}ms")
+                    add_log(state["log"], GREEN, "RECOVERED", f"  outage {duration:.0f}s  lat={latency:.1f}ms" if latency is not None else f"  outage {duration:.0f}s")
                 else:
                     state["color"] = GREEN
                     state["label"] = "OK"
                     state["detail"] = ""
-                    add_log(state["log"], GREEN, "OK", f"  {latency:.1f}ms")
+                    add_log(state["log"], GREEN, "OK", f"  {latency:.1f}ms" if latency is not None else "")
                 countdown(NORMAL_INTERVAL, state)
 
             else:
@@ -138,12 +138,12 @@ def main():
                         state["color"] = GREEN
                         state["label"] = "RECOVERED"
                         state["detail"] = f"  (outage lasted {duration:.0f}s)"
-                        add_log(state["log"], GREEN, "RECOVERED", f"  outage {duration:.0f}s  lat={latency:.1f}ms")
+                        add_log(state["log"], GREEN, "RECOVERED", f"  outage {duration:.0f}s  lat={latency:.1f}ms" if latency is not None else f"  outage {duration:.0f}s")
                     else:
                         state["color"] = GREEN
                         state["label"] = "OK"
                         state["detail"] = "  (recovered on retry)"
-                        add_log(state["log"], GREEN, "OK (retry)", f"  {latency:.1f}ms")
+                        add_log(state["log"], GREEN, "OK (retry)", f"  {latency:.1f}ms" if latency is not None else "")
                     countdown(NORMAL_INTERVAL, state)
                 else:
                     if state["outage_start"] is None:
