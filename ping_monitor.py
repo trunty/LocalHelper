@@ -206,48 +206,45 @@ def main():
                 countdown(NORMAL_INTERVAL, state)
 
             else:
-                retry_success = False
-                for attempt in range(1, MAX_RETRIES + 1):
-                    state["color"] = YELLOW
-                    state["label"] = "RETRYING"
-                    state["detail"] = f"  ({attempt}/{MAX_RETRIES})"
-                    add_log(state["log"], YELLOW, "FAIL", f"  retry {attempt}/{MAX_RETRIES}")
-                    draw(state)
-                    success, latency = ping(TARGET)
-                    if success:
-                        retry_success = True
-                        break
+                # Already in an outage — skip retry loop, stay in OUTAGE silently
+                if state["outage_start"] is not None:
+                    state["graph"].append(None)
+                    state["color"] = RED
+                    state["label"] = "OUTAGE"
+                    state["detail"] = ""
+                    countdown(RETRY_INTERVAL, state)
+                else:
+                    retry_success = False
+                    for attempt in range(1, MAX_RETRIES + 1):
+                        state["color"] = YELLOW
+                        state["label"] = "RETRYING"
+                        state["detail"] = f"  ({attempt}/{MAX_RETRIES})"
+                        add_log(state["log"], YELLOW, "FAIL", f"  retry {attempt}/{MAX_RETRIES}")
+                        draw(state)
+                        success, latency = ping(TARGET)
+                        if success:
+                            retry_success = True
+                            break
 
-                if retry_success:
-                    state["graph"].append(latency)
-                    if latency is not None:
-                        state["samples"].append(latency)
-                    state["latency"] = latency
-                    if state["outage_start"] is not None:
-                        duration = time.time() - state["outage_start"]
-                        state["outage_start"] = None
-                        state["color"] = GREEN
-                        state["label"] = "RECOVERED"
-                        state["detail"] = f"  (outage lasted {duration:.0f}s)"
-                        add_log(state["log"], GREEN, "RECOVERED",
-                                f"  outage {duration:.0f}s  lat={latency:.1f}ms"
-                                if latency is not None else f"  outage {duration:.0f}s")
-                    else:
+                    if retry_success:
+                        state["graph"].append(latency)
+                        if latency is not None:
+                            state["samples"].append(latency)
+                        state["latency"] = latency
                         state["color"] = GREEN
                         state["label"] = "OK"
                         state["detail"] = "  (recovered on retry)"
                         add_log(state["log"], GREEN, "OK (retry)",
                                 f"  {latency:.1f}ms" if latency is not None else "")
-                    countdown(NORMAL_INTERVAL, state)
-                else:
-                    state["graph"].append(None)   # record outage point
-                    if state["outage_start"] is None:
+                        countdown(NORMAL_INTERVAL, state)
+                    else:
+                        state["graph"].append(None)   # record outage point
                         state["outage_start"] = time.time()
                         add_log(state["log"], RED, "OUTAGE", "  entering recovery mode")
-                    state["color"] = RED
-                    state["label"] = "OUTAGE"
-                    state["detail"] = ""
-                    countdown(RETRY_INTERVAL, state)
+                        state["color"] = RED
+                        state["label"] = "OUTAGE"
+                        state["detail"] = ""
+                        countdown(RETRY_INTERVAL, state)
 
     except KeyboardInterrupt:
         samples = state["samples"]
