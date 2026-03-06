@@ -5,7 +5,7 @@ import time
 import sys
 from datetime import datetime
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 TARGET = "8.8.8.8"
 NORMAL_INTERVAL = 15   # seconds between pings when healthy
