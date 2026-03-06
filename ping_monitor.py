@@ -11,7 +11,7 @@ import time
 from collections import deque
 from datetime import datetime
 
-VERSION = "2.0.0-beta.1"
+VERSION = "2.0.0"
 
 # ── ANSI ─────────────────────────────────────────────────────────────────────
 GREEN  = "\033[32m"
