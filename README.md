@@ -42,7 +42,8 @@ A terminal-based network connectivity monitor with a persistent, non-scrolling d
 - **Outage tracking** — records when the outage started and displays elapsed down time
 - **Recovery detection** — reports total outage duration when connectivity is restored
 - **Latency statistics** — tracks latest and average round-trip time across the session
-- **Scrolling event log** — shows the last 10 status events with timestamps
+- **Scrolling latency graph** — live ASCII line graph showing up to 300 samples of latency history with labeled Y-axis
+- **Scrolling event log** — shows the last 8 status events with timestamps
 - **Graceful shutdown** — Ctrl+C prints a session summary before exiting
 - **No dependencies** — uses only Python standard library modules
 
@@ -105,7 +106,9 @@ All configuration is done via constants at the top of the script. There is no CL
 | `NORMAL_INTERVAL` | `15` | Seconds between pings when the connection is healthy. |
 | `RETRY_INTERVAL` | `2` | Seconds between pings when in outage/recovery mode. |
 | `MAX_RETRIES` | `2` | Number of immediate retries before declaring an outage. |
-| `MAX_LOG` | `10` | Number of recent events shown in the event log panel. |
+| `MAX_LOG` | `8` | Number of recent events shown in the event log panel. |
+| `GRAPH_HEIGHT` | `8` | Number of rows tall for the latency graph. |
+| `GRAPH_MAX` | `300` | Rolling sample window for the latency graph (number of data points). |
 
 **Example — monitor a custom host with aggressive polling:**
 
@@ -121,31 +124,37 @@ MAX_RETRIES = 3
 ## Dashboard Layout
 
 ```
-──────────────────────────────────────────────────────────
-  PING MONITOR  →  8.8.8.8    2026-03-06 14:22:10
-──────────────────────────────────────────────────────────
-  Status   : OK
-  Latency  : 14.2ms   avg 13.8ms over 42 samples
-  Next ping: in 11s
-──────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────
+  PING MONITOR  →  8.8.8.8    v1.4.1  2026-03-06 14:22:10
+────────────────────────────────────────────────────────────────────────
+  Status   : OK              lat 14.2ms   next in 11s
+────────────────────────────────────────────────────────────────────────
+  28ms ╪                              *
+       │                           *  |
+  21ms ╪            *   *       *  |
+       │          * | * | *   * |
+       │        * | | | | | * | |
+  14ms ╪  * * * | | | | | | | | |
+       │  | | |
+       │
+       └─────────────────────────────────────────────────── time →
+────────────────────────────────────────────────────────────────────────
   Recent events:
   14:22:10  OK              14.2ms
   14:21:55  OK              13.9ms
-  14:21:40  OK              14.1ms
-  14:21:25  OK              13.6ms
   ...
 ```
 
 **During an outage:**
 
 ```
-──────────────────────────────────────────────────────────
-  PING MONITOR  →  8.8.8.8    2026-03-06 14:25:03
-──────────────────────────────────────────────────────────
-  Status   : OUTAGE      (down 47s)
-  Latency  : —   avg 13.8ms over 42 samples
-  Next ping: in 1s
-──────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────
+  PING MONITOR  →  8.8.8.8    v1.4.1  2026-03-06 14:25:03
+────────────────────────────────────────────────────────────────────────
+  Status   : OUTAGE         (down 47s)   lat —   next in 1s
+────────────────────────────────────────────────────────────────────────
+  ...graph with ! markers where outage samples appear...
+────────────────────────────────────────────────────────────────────────
   Recent events:
   14:24:16  OUTAGE          entering recovery mode
   14:24:14  FAIL            retry 2/2
@@ -153,6 +162,8 @@ MAX_RETRIES = 3
   14:24:10  OK              14.0ms
   ...
 ```
+
+The graph Y-axis is auto-scaled to the min/max latency seen in the current window. Outage samples (failed pings) appear as `!` markers at the vertical midpoint.
 
 ---
 
@@ -189,10 +200,11 @@ Colors are rendered using standard ANSI escape codes and will display correctly 
 On each cycle, the script:
 
 1. Renders the current state to the terminal (clearing and redrawing from the top)
-2. Calls `ping -c 1 -W 3 <TARGET>` via subprocess
+2. Calls `ping -c 1 -W 3000 <TARGET>` (macOS) or `ping -c 1 -W 3 <TARGET>` (Linux) via subprocess
 3. Parses the round-trip time from stdout using a regex
-4. Updates state and logs the result
-5. Counts down the `NORMAL_INTERVAL` in 1-second ticks, redrawing each second
+4. Appends the latency sample to the rolling graph deque
+5. Updates state and logs the result
+6. Counts down the `NORMAL_INTERVAL` in 1-second ticks, redrawing each second
 
 ### Failure Detection
 
@@ -224,19 +236,19 @@ When a ping succeeds after a recorded outage:
 
 ## Latency Tracking
 
-Latency is parsed from the `ping` output using the regex:
+Latency is parsed from `ping` output using a two-stage strategy:
 
-```
-time[=<]([\d.]+)\s*ms
-```
+1. **Per-packet line** — regex `time[=<]\s*([\d.,]+)` matches formats like `time=14.2 ms` and `time<1ms`
+2. **Round-trip stats fallback** — regex `=\s*([\d.]+)/([\d.]+)/` parses the `min/avg/max/stddev` summary line; the minimum value is used
 
-This handles both `time=14.2ms` and `time=14.2 ms` formats, as well as the `time<1ms` format seen on some systems.
+The fallback handles a macOS edge case: `ping -W` takes milliseconds on macOS vs. seconds on Linux, so the script uses `-W 3000` on macOS and `-W 3` on Linux. The per-packet line is expected in both cases; the stats-line fallback is a belt-and-suspenders safety net.
 
-**Important:** On some platforms (notably macOS), the `ping` command may return exit code 0 (success) but produce output that does not match this pattern — for example when the response time is extremely low or the output format differs slightly. In this case `latency` will be `None`. The script handles this gracefully:
+If latency cannot be parsed despite a successful ping, it is recorded as `None`:
 
 - `None` latencies are not added to the samples list
 - The average is computed only over valid numeric samples
 - The display shows `—` for the current latency
+- Graph samples with no latency are plotted as `!` outage markers
 
 ---
 
@@ -272,6 +284,5 @@ The script is intentionally simple and structured around a single `state` dict, 
 - **Latency threshold alerting** — flag when avg latency exceeds a configurable threshold even if pings succeed
 - **Desktop/audio notifications** — trigger `osascript` (macOS) or `notify-send` (Linux) on outage/recovery
 - **Webhook alerts** — POST to a Slack, Discord, or custom webhook on state changes
-- **Historical graphs** — use `curses` or a sparkline library to render latency history inline
 - **Config file support** — read settings from a YAML or INI file instead of hardcoded constants
 - **Stats persistence** — append session summaries to a JSON or CSV file for trend analysis
