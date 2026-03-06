@@ -34,7 +34,7 @@ def ping(host):
     )
     if result.returncode != 0:
         return False, None
-    match = re.search(r"time[=<]([\d.]+)\s*ms", result.stdout)
+    match = re.search(r"time[=<]\s*([\d.]+)\s*ms", result.stdout)
     latency = float(match.group(1)) if match else None
     return True, latency
 
