@@ -4,6 +4,16 @@ A terminal-based network connectivity monitor with a persistent, non-scrolling d
 
 ---
 
+## Repository Layout
+
+| Path | Description |
+|---|---|
+| `ping_monitor.py` | **Stable release** — current production version (v1.4.1) |
+| [`beta/`](beta/) | **Early access** — v2.0.0-beta.1 with multi-host support, CLI flags, log file, latency warnings, and desktop alerts |
+| [`archive/`](archive/) | Previous stable releases, named `ping_monitor_vX.Y.Z.py` |
+
+---
+
 ## Table of Contents
 
 - [Overview](#overview)
