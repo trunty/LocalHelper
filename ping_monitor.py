@@ -32,17 +32,25 @@ def timestamp():
 
 def ping(host):
     """Returns (success, latency_ms). latency_ms is None on failure."""
+    # macOS ping -W takes milliseconds; Linux takes seconds
+    wait_arg = ["-W", "3000"] if sys.platform == "darwin" else ["-W", "3"]
     result = subprocess.run(
-        ["ping", "-c", "1", "-W", "3", host],
+        ["ping", "-c", "1"] + wait_arg + [host],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
     )
     if result.returncode != 0:
         return False, None
+    # Primary: per-packet "time=X.X ms" line
     match = re.search(r"time[=<]\s*([\d.,]+)", result.stdout)
-    latency = float(match.group(1).replace(",", ".")) if match else None
-    return True, latency
+    if match:
+        return True, float(match.group(1).replace(",", "."))
+    # Fallback: round-trip stats "= min/avg/max/stddev" line (macOS)
+    match = re.search(r"=\s*([\d.]+)/([\d.]+)/", result.stdout)
+    if match:
+        return True, float(match.group(1))  # use min
+    return True, None
 
 
 def render_graph(history, width, height):
