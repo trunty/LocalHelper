@@ -9,8 +9,8 @@ A terminal-based network connectivity monitor with a persistent, non-scrolling d
 | Path | Description |
 |---|---|
 | `ping_monitor.py` | **Stable release** — current production version (v1.4.1) |
-| [`beta/`](beta/) | **Early access** — v2.0.0-beta.1 with multi-host support, CLI flags, log file, latency warnings, and desktop alerts |
-| [`archive/`](archive/) | Previous stable releases, named `ping_monitor_vX.Y.Z.py` |
+| [`beta/`](beta/) | **Early access** — next version in active development; all code changes go here first |
+| [`archive/`](archive/) | **Previous stable releases** — when a new version is promoted to production, the outgoing version is added here as `ping_monitor_vX.Y.Z.py`; files are never removed or replaced |
 
 ---
 
