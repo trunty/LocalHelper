@@ -255,29 +255,38 @@ def monitor_host(host, st, lock, shutdown, cfg):
                 _handle_success(host, st, latency, cfg)
             interval = cfg.interval
         else:
-            # Retry loop — each ping is outside the lock
-            retry_success, retry_lat = False, None
-            for attempt in range(1, cfg.retries + 1):
-                if shutdown.is_set():
-                    return
-                with lock:
-                    st["color"] = YELLOW
-                    st["label"] = "RETRYING"
-                    st["detail"] = f"  ({attempt}/{cfg.retries})"
-                    add_log(st, YELLOW, "FAIL", f"  retry {attempt}/{cfg.retries}",
-                            cfg=cfg, host=host)
-                success, latency = ping(host, cfg.timeout)
-                if success:
-                    retry_success, retry_lat = True, latency
-                    break
-
             with lock:
-                if retry_success:
-                    _handle_success(host, st, retry_lat, cfg)
-                    interval = cfg.interval
-                else:
+                already_in_outage = st["outage_start"] is not None
+
+            if already_in_outage:
+                # Stay in OUTAGE silently — no retry loop, no FAIL/RETRY log entries
+                with lock:
                     _handle_outage(host, st, cfg)
-                    interval = cfg.retry_interval
+                interval = cfg.retry_interval
+            else:
+                # Retry loop — each ping is outside the lock
+                retry_success, retry_lat = False, None
+                for attempt in range(1, cfg.retries + 1):
+                    if shutdown.is_set():
+                        return
+                    with lock:
+                        st["color"] = YELLOW
+                        st["label"] = "RETRYING"
+                        st["detail"] = f"  ({attempt}/{cfg.retries})"
+                        add_log(st, YELLOW, "FAIL", f"  retry {attempt}/{cfg.retries}",
+                                cfg=cfg, host=host)
+                    success, latency = ping(host, cfg.timeout)
+                    if success:
+                        retry_success, retry_lat = True, latency
+                        break
+
+                with lock:
+                    if retry_success:
+                        _handle_success(host, st, retry_lat, cfg)
+                        interval = cfg.interval
+                    else:
+                        _handle_outage(host, st, cfg)
+                        interval = cfg.retry_interval
 
         # Countdown — hold lock only briefly per tick
         for remaining in range(interval, 0, -1):
