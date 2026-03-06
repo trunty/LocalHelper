@@ -7,7 +7,7 @@ import shutil
 from collections import deque
 from datetime import datetime
 
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 
 TARGET = "8.8.8.8"
 NORMAL_INTERVAL = 15   # seconds between pings when healthy
@@ -48,7 +48,8 @@ def ping(host):
 def render_graph(history, width, height):
     """
     Renders a scrolling line graph from a deque of (float|None) latency values.
-    Returns (row_strings, y_label_map) where y_label_map is {row_index: label_str}.
+    Returns (row_strings, y_label_map) where row_strings are plain ASCII and
+    y_label_map is {row_index: label_str}.
     """
     data = list(history)[-width:]
     data = [None] * (width - len(data)) + data   # left-pad with None
@@ -72,19 +73,19 @@ def render_graph(history, width, height):
 
     for i, row in enumerate(col_rows):
         if row is None:
-            grid[height // 2][i] = f"{RED}\u00d7{RESET}"
+            grid[height // 2][i] = "!"   # outage marker
             continue
 
-        grid[row][i] = f"{GREEN}\u25cf{RESET}"
+        grid[row][i] = "*"               # data point
 
         # Vertical connector to previous point
         if i > 0 and col_rows[i - 1] is not None:
             prev = col_rows[i - 1]
             if prev != row:
                 for r in range(min(prev, row) + 1, max(prev, row)):
-                    grid[r][i] = f"{GREEN}\u2502{RESET}"
+                    grid[r][i] = "|"
 
-    rows = ["".join(cell for cell in row) for row in grid]
+    rows = ["".join(row) for row in grid]
     y_labels = {
         0:            f"{hi:.0f}ms",
         height // 2:  f"{(hi + lo) / 2:.0f}ms",
@@ -126,11 +127,10 @@ def draw(state):
 
     for r, row_str in enumerate(graph_rows):
         label = y_labels.get(r, "")
-        if label:
-            prefix = f"{label:>6} \u2524"   # e.g. " 120ms \u2524" — 8 chars
-        else:
-            prefix = "       \u2502"          # 8 chars
-        lines.append(f"{DIM}{prefix}{RESET}{row_str}")
+        prefix = f"{label:>6} \u2524" if label else "       \u2502"
+        # Highlight outage markers red, rest of row green
+        colored = row_str.replace("!", f"{RED}!{RESET}{GREEN}")
+        lines.append(f"{DIM}{prefix}{RESET}{GREEN}{colored}{RESET}")
 
     # X-axis bottom: 7 spaces align the corner under the \u2502 above
     x_axis = " " * 7 + "\u2514" + "\u2500" * max(0, graph_w - 5) + " time \u2192"
