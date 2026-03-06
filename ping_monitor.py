@@ -5,6 +5,8 @@ import time
 import sys
 from datetime import datetime
 
+VERSION = "1.1.0"
+
 TARGET = "8.8.8.8"
 NORMAL_INTERVAL = 15   # seconds between pings when healthy
 RETRY_INTERVAL = 2     # seconds between pings when recovering
@@ -53,7 +55,7 @@ def draw(state):
 
     lines = [
         f"{BOLD}{'─' * 58}{RESET}",
-        f"{BOLD}  PING MONITOR  →  {TARGET}{RESET}    {DIM}{now}{RESET}",
+        f"{BOLD}  PING MONITOR  →  {TARGET}{RESET}    {DIM}v{VERSION}  {now}{RESET}",
         f"{'─' * 58}",
         f"  Status   : {state['color']}{BOLD}{state['label']:<12}{RESET}{state['detail']}{down_str}",
         f"  Latency  : {lat_str}   {DIM}avg {avg_str} over {len(samples)} samples{RESET}",
