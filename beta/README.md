@@ -1,6 +1,6 @@
 # ping_monitor.py — Beta (v2.0.0-beta.1)
 
-> **Early access.** This version adds multi-host support, CLI flags, log file output, latency threshold warnings, and desktop alerts. It is under active testing. The stable release lives in the repo root; previous stable releases are in [`../archive/`](../archive/).
+> **Promoted to production.** This version was promoted to the repo root as v2.0.0. The previous stable release (v1.4.1) has been moved to [`../archive/`](../archive/). Development of the next version will continue here.
 
 ---
 

@@ -8,7 +8,7 @@ A terminal-based network connectivity monitor with a persistent, non-scrolling d
 
 | Path | Description |
 |---|---|
-| `ping_monitor.py` | **Stable release** — current production version (v1.4.1) |
+| `ping_monitor.py` | **Stable release** — current production version (v2.0.0) |
 | [`beta/`](beta/) | **Early access** — next version in active development; all code changes go here first |
 | [`archive/`](archive/) | **Previous stable releases** — when a new version is promoted to production, the outgoing version is added here as `ping_monitor_vX.Y.Z.py`; files are never removed or replaced |
 
@@ -39,21 +39,26 @@ A terminal-based network connectivity monitor with a persistent, non-scrolling d
 
 ## Overview
 
-`ping_monitor.py` continuously pings a target host (default: `8.8.8.8`, Google's public DNS) and displays the result in a fixed, persistent terminal dashboard that redraws in place rather than scrolling. It distinguishes between transient blips (handled with fast retries) and sustained outages (tracked with elapsed time), and uses color to communicate connection health at a glance.
+`ping_monitor.py` continuously pings one or more hosts and displays results in a fixed, persistent terminal dashboard that redraws in place rather than scrolling. It distinguishes between transient blips (handled with fast retries) and sustained outages (tracked with elapsed time), and uses color to communicate connection health at a glance. All settings are configurable via CLI flags — no script editing required.
 
 ---
 
 ## Features
 
 - **Persistent dashboard** — the display redraws in place using ANSI escape codes; no scrolling
+- **Multi-host monitoring** — pass multiple hosts as positional arguments; each gets its own status row and graph, running in parallel threads
+- **CLI configuration** — all settings via `argparse` flags; no script editing required
 - **Live countdown** — shows seconds until next ping, updating every second
-- **Color-coded status** — green for healthy, amber for retrying, red for outage
+- **Color-coded status** — green for healthy, amber for retrying/high-latency, red for outage
 - **Fast retry logic** — immediately retries on first failure before declaring an outage
-- **Outage tracking** — records when the outage started and displays elapsed down time
+- **Outage tracking** — records when the outage started and displays elapsed down time; retries silently at `--retry-interval` without spamming the log
 - **Recovery detection** — reports total outage duration when connectivity is restored
-- **Latency statistics** — tracks latest and average round-trip time across the session
-- **Scrolling latency graph** — live ASCII line graph showing up to 300 samples of latency history with labeled Y-axis
-- **Scrolling event log** — shows the last 8 status events with timestamps
+- **Latency statistics** — tracks latest and rolling average round-trip time across the session
+- **Latency threshold warning** — `--warn-ms` triggers an amber `HIGH LAT` status when rolling average exceeds the threshold, even without packet loss
+- **Scrolling latency graph** — live ASCII line graph showing up to 300 samples with labeled Y-axis
+- **Scrolling event log** — shows the last 8 state-change events per host with timestamps
+- **Log file output** — `--log FILE` appends events to a plain-text file with ISO timestamps
+- **Desktop alerts** — `--alert` sends native notifications on outage and recovery (macOS: `osascript`; Linux: `notify-send`)
 - **Graceful shutdown** — Ctrl+C prints a session summary before exiting
 - **No dependencies** — uses only Python standard library modules
 
@@ -93,40 +98,43 @@ chmod +x ping_monitor.py
 ## Usage
 
 ```bash
-python3 ping_monitor.py
+python3 ping_monitor.py [HOST ...] [OPTIONS]
 ```
 
-Or if made executable:
-
-```bash
-./ping_monitor.py
-```
-
-To stop the monitor, press `Ctrl+C`. A summary of the session will be printed before the script exits.
+With no arguments, monitors `8.8.8.8` using sensible defaults. To stop, press `Ctrl+C` — a session summary is printed before exit.
 
 ---
 
 ## Configuration
 
-All configuration is done via constants at the top of the script. There is no CLI argument parsing — edit the values directly:
+All settings are passed as CLI flags:
 
-| Constant | Default | Description |
+| Flag | Default | Description |
 |---|---|---|
-| `TARGET` | `"8.8.8.8"` | Host to ping. Can be an IP address or hostname. |
-| `NORMAL_INTERVAL` | `15` | Seconds between pings when the connection is healthy. |
-| `RETRY_INTERVAL` | `2` | Seconds between pings when in outage/recovery mode. |
-| `MAX_RETRIES` | `2` | Number of immediate retries before declaring an outage. |
-| `MAX_LOG` | `8` | Number of recent events shown in the event log panel. |
-| `GRAPH_HEIGHT` | `8` | Number of rows tall for the latency graph. |
-| `GRAPH_MAX` | `300` | Rolling sample window for the latency graph (number of data points). |
+| `HOST` (positional, repeatable) | `8.8.8.8` | Host(s) to ping. Pass multiple for simultaneous monitoring. |
+| `-i / --interval SECS` | `15` | Seconds between pings when healthy. |
+| `-R / --retry-interval SECS` | `2` | Seconds between pings during an outage. |
+| `-r / --retries N` | `2` | Immediate retries before declaring an outage. |
+| `-t / --timeout SECS` | `3` | Ping wait timeout per attempt. |
+| `-l / --log FILE` | _(none)_ | Append state-change events to a file. |
+| `--warn-ms MS` | _(none)_ | Amber `HIGH LAT` warning when rolling avg latency exceeds MS. |
+| `--alert` | off | Desktop notification on outage and recovery. |
+| `--no-color` | off | Disable ANSI color output. |
+| `--graph-height ROWS` | `8` | Height of the latency graph. |
+| `--max-log N` | `8` | Recent events shown per host. |
+| `--graph-max N` | `300` | Rolling graph sample window (number of data points). |
 
-**Example — monitor a custom host with aggressive polling:**
+**Examples:**
 
-```python
-TARGET = "192.168.1.1"   # your router
-NORMAL_INTERVAL = 5
-RETRY_INTERVAL = 1
-MAX_RETRIES = 3
+```bash
+# Defaults
+python3 ping_monitor.py
+
+# Monitor two hosts simultaneously
+python3 ping_monitor.py 8.8.8.8 1.1.1.1
+
+# Aggressive polling with latency warning and log file
+python3 ping_monitor.py 8.8.8.8 -i 5 -R 1 --warn-ms 50 -l ~/ping.log --alert
 ```
 
 ---
@@ -135,7 +143,7 @@ MAX_RETRIES = 3
 
 ```
 ────────────────────────────────────────────────────────────────────────
-  PING MONITOR  →  8.8.8.8    v1.4.1  2026-03-06 14:22:10
+  PING MONITOR  →  8.8.8.8    v2.0.0  2026-03-06 14:22:10
 ────────────────────────────────────────────────────────────────────────
   Status   : OK              lat 14.2ms   next in 11s
 ────────────────────────────────────────────────────────────────────────
@@ -159,7 +167,7 @@ MAX_RETRIES = 3
 
 ```
 ────────────────────────────────────────────────────────────────────────
-  PING MONITOR  →  8.8.8.8    v1.4.1  2026-03-06 14:25:03
+  PING MONITOR  →  8.8.8.8    v2.0.0  2026-03-06 14:25:03
 ────────────────────────────────────────────────────────────────────────
   Status   : OUTAGE         (down 47s)   lat —   next in 1s
 ────────────────────────────────────────────────────────────────────────
@@ -184,8 +192,9 @@ The graph Y-axis is auto-scaled to the min/max latency seen in the current windo
 | `STARTING` | Script has just launched, first ping not yet complete. |
 | `OK` | Most recent ping succeeded within the normal timeout. |
 | `OK (retry)` | Ping initially failed but succeeded on a retry attempt. |
+| `HIGH LAT` | Pings succeeding but rolling avg latency exceeds `--warn-ms`. Clears automatically. |
 | `RETRYING` | First ping failed; currently performing immediate retry attempts. |
-| `OUTAGE` | All retries exhausted; connection is considered down. Now polling at `RETRY_INTERVAL`. |
+| `OUTAGE` | All retries exhausted; connection is considered down. Polling silently at `--retry-interval`. |
 | `RECOVERED` | Connection restored after a sustained outage; shows total outage duration. |
 
 ---
@@ -195,7 +204,7 @@ The graph Y-axis is auto-scaled to the min/max latency seen in the current windo
 | Color | Meaning |
 |---|---|
 | Green | Connection is healthy (`OK`, `RECOVERED`) |
-| Amber / Yellow | Transient failure being retried (`RETRYING`, `FAIL`) |
+| Amber / Yellow | Transient failure being retried (`RETRYING`, `FAIL`) or latency threshold exceeded (`HIGH LAT`) |
 | Red | Sustained outage (`OUTAGE`) |
 | Dim / Grey | Script is starting up or informational text |
 
@@ -207,14 +216,12 @@ Colors are rendered using standard ANSI escape codes and will display correctly 
 
 ### Normal Operation
 
-On each cycle, the script:
+Each host runs in its own background thread. The main thread redraws the full dashboard every second. On each monitor cycle, a host thread:
 
-1. Renders the current state to the terminal (clearing and redrawing from the top)
-2. Calls `ping -c 1 -W 3000 <TARGET>` (macOS) or `ping -c 1 -W 3 <TARGET>` (Linux) via subprocess
-3. Parses the round-trip time from stdout using a regex
-4. Appends the latency sample to the rolling graph deque
-5. Updates state and logs the result
-6. Counts down the `NORMAL_INTERVAL` in 1-second ticks, redrawing each second
+1. Calls `ping -c 1 -W <timeout> <HOST>` via subprocess
+2. Parses the round-trip time from stdout using a regex
+3. Updates shared state (protected by a per-host lock) and appends to the rolling graph
+4. Counts down `--interval` in 1-second ticks before the next ping
 
 ### Failure Detection
 
@@ -230,8 +237,8 @@ Once an outage is declared:
 - `outage_start` timestamp is recorded
 - Status changes to `OUTAGE` (red)
 - The dashboard shows elapsed down time, updated every second
-- Polling continues at the faster `RETRY_INTERVAL` cadence
-- Each poll still goes through the full retry sequence on failure
+- Polling continues at the faster `--retry-interval` cadence
+- Subsequent failed pings stay silently in `OUTAGE` — no `RETRYING` display or `FAIL` log entries until connectivity is restored
 
 ### Recovery
 
@@ -276,23 +283,15 @@ This gives you a quick summary of session quality. The terminal is left in a usa
 
 ## Known Limitations
 
-- **Single target only** — the script monitors one host. Running multiple instances in separate terminal windows/panes is the simplest workaround.
-- **No log file** — all output is to stdout only; nothing is persisted to disk.
-- **No alerting** — there is no notification system (email, webhook, desktop alert, etc.).
-- **No latency threshold warnings** — high latency without packet loss is not flagged.
 - **Stats reset on restart** — there is no persistence between runs.
-- **ANSI terminals only** — the persistent display will not work correctly if output is redirected to a file or piped.
+- **ANSI terminals only** — the persistent display will not work correctly if output is redirected to a file or piped. Use `--no-color` and pipe through `col -b` to strip escape codes if needed.
+- **`--alert` on Linux** requires `notify-send` (`libnotify-bin`). If absent the flag is silently ignored.
+- **Tall dashboards** — with many hosts and a short terminal the display may overflow. Reduce `--graph-height` and `--max-log` to compensate.
 
 ---
 
 ## Potential Expansions
 
-The script is intentionally simple and structured around a single `state` dict, making it straightforward to extend:
-
-- **Multiple targets** — run one monitoring loop per host and display them in rows
-- **Log file output** — write events to a file in addition to the screen
-- **Latency threshold alerting** — flag when avg latency exceeds a configurable threshold even if pings succeed
-- **Desktop/audio notifications** — trigger `osascript` (macOS) or `notify-send` (Linux) on outage/recovery
 - **Webhook alerts** — POST to a Slack, Discord, or custom webhook on state changes
-- **Config file support** — read settings from a YAML or INI file instead of hardcoded constants
+- **Config file support** — read settings from a YAML or INI file
 - **Stats persistence** — append session summaries to a JSON or CSV file for trend analysis
