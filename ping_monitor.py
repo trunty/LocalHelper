@@ -100,7 +100,8 @@ def main():
             success, latency = ping(TARGET)
 
             if success:
-                state["samples"].append(latency)
+                if latency is not None:
+                    state["samples"].append(latency)
                 state["latency"] = latency
                 if state["outage_start"] is not None:
                     duration = time.time() - state["outage_start"]
@@ -130,7 +131,8 @@ def main():
                         break
 
                 if retry_success:
-                    state["samples"].append(latency)
+                    if latency is not None:
+                        state["samples"].append(latency)
                     state["latency"] = latency
                     if state["outage_start"] is not None:
                         duration = time.time() - state["outage_start"]
