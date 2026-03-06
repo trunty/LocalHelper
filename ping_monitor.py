@@ -31,13 +31,13 @@ def ping(host):
     result = subprocess.run(
         ["ping", "-c", "1", "-W", "3", host],
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT,
         text=True,
     )
     if result.returncode != 0:
         return False, None
-    match = re.search(r"time[=<]\s*([\d.]+)", result.stdout)
-    latency = float(match.group(1)) if match else None
+    match = re.search(r"time[=<]\s*([\d.,]+)", result.stdout)
+    latency = float(match.group(1).replace(",", ".")) if match else None
     return True, latency
 
 
